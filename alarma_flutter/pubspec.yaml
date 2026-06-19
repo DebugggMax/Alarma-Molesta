@@ -20,10 +20,10 @@ dependencies:
   camera: ^0.11.0
 
   # [Cerebro de IA] - Google ML Kit (100% Offline)
-  google_mlkit_image_labeling: ^0.14.0
+  google_mlkit_image_labeling: ^0.14.2
 
   # [Sonido] - Para reproducir y detener la alarma
-  audioplayers: ^6.0.0
+  audioplayers: ^6.7.1
   
 
 dev_dependencies:
@@ -37,3 +37,6 @@ flutter:
 
   
   uses-material-design: true
+
+  assets:
+    - lib/assets/audio/audio_predef.mp3
