@@ -6,9 +6,12 @@ import 'package:google_mlkit_image_labeling/google_mlkit_image_labeling.dart';
 
 import '../services/camera_service.dart';
 import '../services/ml_service.dart';
+import '../services/audio_service.dart';
 
 class CameraScreen extends StatefulWidget {
-  const CameraScreen({super.key});
+  final String targetObject;
+
+  const CameraScreen({super.key, required this.targetObject});
 
   @override
   State<CameraScreen> createState() => _CameraScreenState();
@@ -16,19 +19,20 @@ class CameraScreen extends StatefulWidget {
 
 class _CameraScreenState extends State<CameraScreen> {
   final CameraService _cameraService = CameraService();
-  final MlService _mlService = MlService(); // 1. Instanciamos el servicio de IA
-  
+  final MlService _mlService = MlService();
+  final AudioService _audioService = AudioService();
+
   bool _isCameraInitialized = false;
-  bool _isBusy = false; // 2. Nuestro semáforo para no saturar la memoria
-  String _currentLabel = "Buscando..."; // Texto para mostrar en pantalla
+  bool _isBusy = false;
+  String _currentLabel = "Buscando...";
 
   @override
   void initState() {
     super.initState();
-    _setupCamera();
+    _setupCameraAndAudio();
   }
 
-  Future<void> _setupCamera() async {
+  Future<void> _setupCameraAndAudio() async {
     await _cameraService.initializeCamera();
     
     if (mounted && _cameraService.controller != null) {
@@ -36,33 +40,26 @@ class _CameraScreenState extends State<CameraScreen> {
         _isCameraInitialized = true;
       });
 
-      // 3. Empezamos a capturar el video en vivo frame por frame
+      await _audioService.playAlarma();
       _cameraService.controller!.startImageStream(_processCameraImage);
     }
   }
 
-  // 4. Función que convierte el frame y lo envía a la IA
   Future<void> _processCameraImage(CameraImage image) async {
-    // Si la IA ya está procesando una imagen anterior, descartamos esta
     if (_isBusy) return;
     _isBusy = true;
 
     try {
-      // --- CONVERSIÓN DE FORMATO (De CameraImage a InputImage para ML Kit) ---
+      // --- CONVERSIÓN DE FORMATO A INPUTIMAGE ---
       final WriteBuffer allBytes = WriteBuffer();
       for (final Plane plane in image.planes) {
         allBytes.putUint8List(plane.bytes);
       }
       final bytes = allBytes.done().buffer.asUint8List();
-
       final Size imageSize = Size(image.width.toDouble(), image.height.toDouble());
-      
-      // Calculamos la rotación según la posición del teléfono
       final InputImageRotation imageRotation = InputImageRotationValue.fromRawValue(
               _cameraService.controller!.description.sensorOrientation) ??
           InputImageRotation.rotation0deg;
-
-      // Formato de imagen (NV21 para Android, BGRA8888 para iOS)
       final InputImageFormat inputImageFormat = InputImageFormatValue.fromRawValue(image.format.raw) ?? 
           (Platform.isAndroid ? InputImageFormat.nv21 : InputImageFormat.bgra8888);
 
@@ -75,9 +72,8 @@ class _CameraScreenState extends State<CameraScreen> {
           bytesPerRow: image.planes[0].bytesPerRow,
         ),
       );
-      // -----------------------------------------------------------------------
+      // ------------------------------------------
 
-      // 5. Le enviamos la imagen ya convertida a nuestro servicio de IA
       final String? labelDetectado = await _mlService.analyzeImage(inputImage);
 
       if (labelDetectado != null && mounted) {
@@ -85,47 +81,121 @@ class _CameraScreenState extends State<CameraScreen> {
           _currentLabel = labelDetectado;
         });
         
-        // Aquí es donde en el futuro validaremos si labelDetectado == _targetObject
-        // y apagaremos la alarma.
+        if (_isTargetMatched(labelDetectado, widget.targetObject)) {
+          await _cameraService.controller?.stopImageStream();
+          await _audioService.stopAlarma();
+
+          if (mounted) {
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('¡Excelente! Encontraste: ${widget.targetObject}. Alarma apagada. ☀️'),
+                backgroundColor: Colors.green.shade700,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+        }
       }
     } catch (e) {
       debugPrint("Error procesando el frame: $e");
     } finally {
-      // 6. ¡Luz verde! La IA terminó, puede recibir la siguiente imagen
       _isBusy = false; 
+    }
+  }
+
+  bool _isTargetMatched(String detected, String target) {
+    final String detectedLower = detected.toLowerCase();
+    switch (target) {
+      case 'Silla':
+        return detectedLower.contains('chair') || detectedLower.contains('seat');
+      case 'Taza':
+        return detectedLower.contains('cup') || detectedLower.contains('mug');
+      case 'Control remoto':
+        return detectedLower.contains('remote') || detectedLower.contains('controller');
+      case 'Botella':
+        return detectedLower.contains('bottle');
+      case 'Teclado':
+        return detectedLower.contains('keyboard');
+      case 'Almohada':
+        return detectedLower.contains('pillow');
+      case 'Mochila':
+        return detectedLower.contains('backpack') || detectedLower.contains('bag');
+      case 'Llaves':
+        return detectedLower.contains('key');
+      case 'Zapatilla':
+        return detectedLower.contains('shoe') || detectedLower.contains('sneaker');
+      case 'Plátano':
+        return detectedLower.contains('banana');
+      default:
+        return detectedLower == target.toLowerCase();
     }
   }
 
   @override
   void dispose() {
-    // ⚠️ Importante: Detener el stream antes de apagar la cámara y cerrar la IA
     _cameraService.controller?.stopImageStream();
     _cameraService.dispose();
     _mlService.dispose();
+    _audioService.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // Hacemos el AppBar completamente transparente para que la cámara use toda la pantalla
       appBar: AppBar(
-        title: const Text('Escaneando objeto...'),
-        backgroundColor: Colors.black45,
-        foregroundColor: Colors.white,
+        backgroundColor: Colors.transparent,
         elevation: 0,
+        leading: const BackButton(color: Colors.white),
       ),
       extendBodyBehindAppBar: true,
       backgroundColor: Colors.black,
       body: _isCameraInitialized && _cameraService.controller != null
           ? Stack(
               children: [
-                // Vista de la cámara a pantalla completa
+                // 1. Vista de la cámara de fondo
                 SizedBox(
                   width: double.infinity,
                   height: double.infinity,
                   child: CameraPreview(_cameraService.controller!),
                 ),
-                // Letrero que muestra lo que la IA está viendo en tiempo real
+
+                // 2. ✨ NUEVO: El objeto a fotografiar "arribita en pequeño" coincidiendo con el Home
+                Positioned(
+                  top: kToolbarHeight + 20, // Justo debajo de los botones del AppBar
+                  left: 30,
+                  right: 30,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.deepPurple.withOpacity(0.85), // Fondo morado semitransparente
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white24, width: 1),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.gps_fixed, color: Colors.white, size: 18),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Objetivo: ${widget.targetObject}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                // 3. Letrero inferior que muestra lo que ve la IA actualmente
                 Positioned(
                   bottom: 50,
                   left: 20,
@@ -133,7 +203,7 @@ class _CameraScreenState extends State<CameraScreen> {
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.7),
+                      color: Colors.black.withOpacity(0.75),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
@@ -141,7 +211,7 @@ class _CameraScreenState extends State<CameraScreen> {
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 24,
+                        fontSize: 22,
                         fontWeight: FontWeight.bold,
                       ),
                     ),

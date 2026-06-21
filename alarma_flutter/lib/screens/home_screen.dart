@@ -1,4 +1,4 @@
-import 'dart:math';
+import 'dart:math'; // Dejamos solo uno de los imports
 import 'package:flutter/material.dart';
 import '../models/alarm.dart';
 import 'camera_screen.dart';
@@ -11,11 +11,24 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // Nuestra lista dinámica de alarmas (empieza vacía)
   final List<AlarmModel> _alarms = [];
   
-  // Lista de objetos aleatorios para las misiones de la IA
-  final List<String> _possibleObjects = ['Silla', 'Taza', 'Control remoto', 'Botella'];
+  // 1. ✨ INSTANCIA ÚNICA: Creamos el generador aquí arriba para que tenga memoria de secuencia
+  final Random _random = Random();
+  
+  // 2. ✨ MÁS VARIEDAD: Ampliamos la lista para bajar drásticamente las repeticiones
+  final List<String> _possibleObjects = [
+    'Silla', 
+    'Taza', 
+    'Control remoto', 
+    'Botella',
+    'Teclado',
+    'Almohada',
+    'Mochila',
+    'Llaves',
+    'Zapatilla',
+    'Plátano'
+  ];
 
   // 🕒 FUNCIÓN POP-UP: Abre el reloj gigante y añade la alarma a la lista
   Future<void> _openTimePickerPopUp(BuildContext context) async {
@@ -26,13 +39,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     if (pickedTime != null) {
-      // Elegimos un objeto al azar de la lista para la misión
-      final randomObject = _possibleObjects[Random().nextInt(_possibleObjects.length)];
+      // 3. ✨ SOLUCIÓN: Usamos '_random' (con minúscula) para usar la secuencia global ordenada
+      final randomObject = _possibleObjects[_random.nextInt(_possibleObjects.length)];
 
       setState(() {
         _alarms.add(
           AlarmModel(
-            id: DateTime.now().toString(), // ID único basado en el milisegundo actual
+            id: DateTime.now().toString(), 
             time: pickedTime,
             targetObject: randomObject,
           ),
@@ -50,7 +63,6 @@ class _HomeScreenState extends State<HomeScreen> {
         elevation: 2,
       ),
       
-      // Si no hay alarmas, mostramos un letrero bonito. Si hay, mostramos la lista.
       body: _alarms.isEmpty
           ? const Center(
               child: Text(
@@ -72,7 +84,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: ListTile(
                     contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                     
-                    // Hora de la alarma en grande
                     title: Text(
                       alarm.time.format(context),
                       style: TextStyle(
@@ -82,7 +93,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     
-                    // Misión asignada debajo de la hora
                     subtitle: Padding(
                       padding: const EdgeInsets.only(top: 8.0),
                       child: Row(
@@ -100,7 +110,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     
-                    // El interruptor (Switch) para activar/desactivar
                     trailing: Switch(
                       value: alarm.isActive,
                       activeColor: Colors.deepPurple,
@@ -109,11 +118,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           alarm.isActive = value;
                         });
                         
-                        // SIMULACIÓN: Si el usuario enciende la alarma, simulamos que suena mandándolo a la cámara
                         if (value) {
                           Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (context) => const CameraScreen()),
+                            MaterialPageRoute(
+                              builder: (context) => CameraScreen(targetObject: alarm.targetObject),
+                            ),
                           );
                         }
                       },
@@ -123,7 +133,6 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
 
-      // ➕ Botón Flotante para añadir alarmas (esquinas redondeadas estilo Material 3)
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openTimePickerPopUp(context),
         backgroundColor: Colors.deepPurple,
