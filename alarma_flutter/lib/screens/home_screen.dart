@@ -1,7 +1,8 @@
-import 'dart:async'; // 1. IMPORTANTE: Necesario para usar el Timer (reloj interno)
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../models/alarm.dart';
+import '../services/alarm_scheduler_service.dart';
 import 'camera_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -14,8 +15,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final List<AlarmModel> _alarms = [];
   final Random _random = Random();
-  
-  // 2. Definimos el temporizador que vigilará el reloj del celular
   Timer? _alarmCheckTimer;
 
   final List<String> _possibleObjects = [
@@ -26,35 +25,35 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // 3. En cuanto abre la app, activamos el vigilante de alarmas
     _startAlarmVigilante();
   }
 
-  // 4. Esta función corre en silencio cada 5 segundos revisando si ya es la hora
+  // Vigila el reloj cuando la app está abierta en primer plano
   void _startAlarmVigilante() {
     _alarmCheckTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       final now = TimeOfDay.now();
-      
+
       for (var alarm in _alarms) {
-        // SI la alarma está encendida Y coincide exactamente la hora y el minuto...
-        if (alarm.isActive && 
-            alarm.time.hour == now.hour && 
+        if (alarm.isActive &&
+            alarm.time.hour == now.hour &&
             alarm.time.minute == now.minute) {
-          
-          // A. Desactivamos la alarma primero para que no se vuelva a disparar en bucle
+
           setState(() {
             alarm.isActive = false;
           });
 
-          // B. ¡FUEGO! Disparamos la pantalla de la cámara automáticamente
+          // Cancelamos también en el scheduler nativo para no disparar dos veces
+          final alarmId = int.tryParse(alarm.id) ?? 0;
+          AlarmSchedulerService.cancelAlarm(alarmId);
+
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (context) => CameraScreen(targetObject: alarm.targetObject),
             ),
           );
-          
-          break; // Rompemos el ciclo para evitar abrir múltiples cámaras si coinciden
+
+          break;
         }
       }
     });
@@ -62,7 +61,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    // ⚠️ Siempre cancelamos el timer al salir de la pantalla para no gastar batería
     _alarmCheckTimer?.cancel();
     super.dispose();
   }
@@ -76,17 +74,52 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (pickedTime != null) {
       final randomObject = _possibleObjects[_random.nextInt(_possibleObjects.length)];
+      final alarmId = DateTime.now().millisecondsSinceEpoch % 100000;
+
+      // Programamos en el scheduler nativo para background/pantalla apagada
+      await AlarmSchedulerService.scheduleAlarm(
+        alarmId: alarmId,
+        time: pickedTime,
+        targetObject: randomObject,
+      );
 
       setState(() {
         _alarms.add(
           AlarmModel(
-            id: DateTime.now().toString(), 
+            id: alarmId.toString(),
             time: pickedTime,
             targetObject: randomObject,
           ),
         );
       });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Alarma programada. Misión: "$randomObject"'),
+            backgroundColor: Colors.deepPurple,
+          ),
+        );
+      }
     }
+  }
+
+  Future<void> _toggleAlarm(AlarmModel alarm, bool value) async {
+    final alarmId = int.tryParse(alarm.id) ?? 0;
+
+    if (value) {
+      await AlarmSchedulerService.scheduleAlarm(
+        alarmId: alarmId,
+        time: alarm.time,
+        targetObject: alarm.targetObject,
+      );
+    } else {
+      await AlarmSchedulerService.cancelAlarm(alarmId);
+    }
+
+    setState(() {
+      alarm.isActive = value;
+    });
   }
 
   @override
@@ -110,7 +143,7 @@ class _HomeScreenState extends State<HomeScreen> {
               itemCount: _alarms.length,
               itemBuilder: (context, index) {
                 final alarm = _alarms[index];
-                
+
                 return Card(
                   margin: const EdgeInsets.only(bottom: 12),
                   elevation: 3,
@@ -144,13 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     trailing: Switch(
                       value: alarm.isActive,
                       activeColor: Colors.deepPurple,
-                      onChanged: (value) {
-                        // 5. El Switch ahora SOLO guarda si la alarma está prendida o apagada.
-                        // Ya no te manda a la cámara de inmediato. El Timer hará ese trabajo.
-                        setState(() {
-                          alarm.isActive = value;
-                        });
-                      },
+                      onChanged: (value) => _toggleAlarm(alarm, value),
                     ),
                   ),
                 );

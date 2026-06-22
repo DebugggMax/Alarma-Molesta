@@ -24,6 +24,9 @@ dependencies:
 
   # [Sonido] - Para reproducir y detener la alarma
   audioplayers: ^6.7.1
+
+  flutter_local_notifications: ^18.0.0
+  timezone: ^0.9.4
   
 
 dev_dependencies:
