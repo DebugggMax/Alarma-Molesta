@@ -1,7 +1,14 @@
 import 'package:flutter/material.dart';
-import 'screens/home_screen.dart'; // Importamos tu nueva pantalla
+import 'package:flutter/services.dart'; // Necesario para hablar con el sistema nativo
+import 'screens/home_screen.dart';
 
-void main() {
+void main() async {
+  // Asegura que Flutter esté listo antes de llamar a Android/iOS
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Prepara la pantalla de Android
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+
   runApp(const AlarmaApp());
 }
 
@@ -11,13 +18,12 @@ class AlarmaApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Despertador IA',
-      debugShowCheckedModeBanner: false, // Oculta la etiqueta de debug
+      title: 'Despertador Pesado',
+      debugShowCheckedModeBanner: false, // Corregido: devuelto a su estado original
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      // Aquí está la magia: conectamos el inicio con tu pantalla
       home: const HomeScreen(), 
     );
   }
