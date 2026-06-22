@@ -100,7 +100,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: _alarms.isEmpty
           ? const Center(
               child: Text(
-                'No tienes alarmas programadas.\nPresiona el botón de abajo para añadir una. ⏰',
+                'No tienes alarmas programadas.\nPresiona el botón de abajo para añadir una.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 16, color: Colors.grey),
               ),
