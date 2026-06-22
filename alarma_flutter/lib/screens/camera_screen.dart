@@ -1,16 +1,11 @@
-import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:google_mlkit_image_labeling/google_mlkit_image_labeling.dart';
-
 import '../services/camera_service.dart';
 import '../services/ml_service.dart';
 import '../services/audio_service.dart';
 
 class CameraScreen extends StatefulWidget {
   final String targetObject;
-
   const CameraScreen({super.key, required this.targetObject});
 
   @override
@@ -23,117 +18,70 @@ class _CameraScreenState extends State<CameraScreen> {
   final AudioService _audioService = AudioService();
 
   bool _isCameraInitialized = false;
-  bool _isBusy = false;
-  String _currentLabel = "Buscando...";
+  String _currentLabel = "Cargando misión...";
+  
+  // Cronómetro interno para regular los impactos de la IA
+  DateTime? _lastProcessedTime;
 
   @override
   void initState() {
     super.initState();
-    _setupCameraAndAudio();
+    _startMission();
   }
 
- Future<void> _setupCameraAndAudio() async {
-    // 1. Inicializamos el hardware de la cámara primero
+  Future<void> _startMission() async {
+    // 1. Encendemos el lente de la cámara
     await _cameraService.initializeCamera();
-    
-    if (mounted && _cameraService.controller != null) {
-      setState(() {
-        _isCameraInitialized = true;
-      });
-      // 2. Reproducimos el sonido de la alarma EN SEGUNDO PLANO sin esperar a que termine
+    if (!mounted || _cameraService.controller == null) return;
+
+    setState(() {
+      _isCameraInitialized = true;
+    });
+
+    // 🔥 DETONADOR DEL AUDIO (Solución al Bug): 
+    // Forzamos el sonido antes de encender el procesador de IA y damos un respiro al sistema
+    await _audioService.playAlarma();
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // 2. Iniciamos el detector controlado por tiempo
+    _cameraService.controller!.startImageStream((CameraImage image) async {
+      final now = DateTime.now();
       
-      _audioService.playAlarma();
-
-      // 3. Arrancamos el escaneo de la IA en el mismísimo milisegundo
-      _cameraService.controller!.startImageStream(_processCameraImage);
-    }
-  }
-
-  Future<void> _processCameraImage(CameraImage image) async {
-    if (_isBusy) return;
-    _isBusy = true;
-
-    try {
-      // --- CONVERSIÓN DE FORMATO A INPUTIMAGE ---
-      final WriteBuffer allBytes = WriteBuffer();
-      for (final Plane plane in image.planes) {
-        allBytes.putUint8List(plane.bytes);
+      // Throttling: Si no han pasado 350ms desde la última foto, ignoramos este cuadro
+      if (_lastProcessedTime != null && now.difference(_lastProcessedTime!).inMilliseconds < 350) {
+        return;
       }
-      final bytes = allBytes.done().buffer.asUint8List();
-      final Size imageSize = Size(image.width.toDouble(), image.height.toDouble());
-      final InputImageRotation imageRotation = InputImageRotationValue.fromRawValue(
-              _cameraService.controller!.description.sensorOrientation) ??
-          InputImageRotation.rotation0deg;
-      final InputImageFormat inputImageFormat = InputImageFormatValue.fromRawValue(image.format.raw) ?? 
-          (Platform.isAndroid ? InputImageFormat.nv21 : InputImageFormat.bgra8888);
+      _lastProcessedTime = now;
 
-      final inputImage = InputImage.fromBytes(
-        bytes: bytes,
-        metadata: InputImageMetadata(
-          size: imageSize,
-          rotation: imageRotation,
-          format: inputImageFormat,
-          bytesPerRow: image.planes[0].bytesPerRow,
-        ),
+      // Consumimos directamente la lógica empaquetada del servicio
+      final result = await _mlService.processFrame(
+        image, 
+        _cameraService.controller!.description.sensorOrientation, 
+        widget.targetObject
       );
-      // ------------------------------------------
 
-      final String? labelDetectado = await _mlService.analyzeImage(inputImage);
+      if (!mounted) return;
 
-      if (labelDetectado != null && mounted) {
-        setState(() {
-          _currentLabel = labelDetectado;
-        });
-        
-        if (_isTargetMatched(labelDetectado, widget.targetObject)) {
-          await _cameraService.controller?.stopImageStream();
-          await _audioService.stopAlarma();
+      setState(() {
+        _currentLabel = result.label;
+      });
 
-          if (mounted) {
-            Navigator.pop(context);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('¡Excelente! Encontraste: ${widget.targetObject}. Alarma apagada. ☀️'),
-                backgroundColor: Colors.green.shade700,
-                duration: const Duration(seconds: 4),
-              ),
-            );
-          }
+      // Si el servicio decreta la victoria, cerramos todo de inmediato
+      if (result.isMatch) {
+        await _cameraService.controller?.stopImageStream();
+        await _audioService.stopAlarma();
+
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('¡Excelente! Encontraste: ${widget.targetObject}. Alarma apagada. ☀️'),
+              backgroundColor: Colors.green.shade700,
+            ),
+          );
         }
       }
-    } catch (e) {
-      debugPrint("Error procesando el frame: $e");
-    } finally {
-      _isBusy = false; 
-    }
-  }
-
-  bool _isTargetMatched(String detected, String target) {
-    final String detectedLower = detected.toLowerCase();
-    switch (target) {
-      case 'Silla':
-        return detectedLower.contains('chair') || detectedLower.contains('seat');
-      case 'Taza':
-        return detectedLower.contains('cup') || detectedLower.contains('mug');
-      case 'Control remoto':
-        return detectedLower.contains('remote') || detectedLower.contains('controller');
-      case 'Botella':
-        return detectedLower.contains('bottle');
-      case 'Teclado':
-        return detectedLower.contains('keyboard');
-      case 'Almohada':
-        return detectedLower.contains('pillow');
-      case 'Mochila':
-        return detectedLower.contains('backpack') || detectedLower.contains('bag');
-      case 'Llaves':
-        return detectedLower.contains('key');
-      case 'Zapatilla':
-        return detectedLower.contains('shoe') || detectedLower.contains('sneaker');
-      case 'Plátano':
-        return detectedLower.contains('banana');
-      default:
-        return detectedLower == target.toLowerCase();
-    }
+    });
   }
 
   @override
@@ -148,7 +96,6 @@ class _CameraScreenState extends State<CameraScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Hacemos el AppBar completamente transparente para que la cámara use toda la pantalla
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -159,25 +106,22 @@ class _CameraScreenState extends State<CameraScreen> {
       body: _isCameraInitialized && _cameraService.controller != null
           ? Stack(
               children: [
-                // 1. Vista de la cámara de fondo
                 SizedBox(
                   width: double.infinity,
                   height: double.infinity,
                   child: CameraPreview(_cameraService.controller!),
                 ),
-
-                // 2. ✨ NUEVO: El objeto a fotografiar "arribita en pequeño" coincidiendo con el Home
+                // Píldora de objetivo superior
                 Positioned(
-                  top: kToolbarHeight + 20, // Justo debajo de los botones del AppBar
+                  top: kToolbarHeight + 20,
                   left: 30,
                   right: 30,
                   child: Center(
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
                       decoration: BoxDecoration(
-                        color: Colors.deepPurple.withOpacity(0.85), // Fondo morado semitransparente
+                        color: Colors.deepPurple.withOpacity(0.85),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.white24, width: 1),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -186,20 +130,14 @@ class _CameraScreenState extends State<CameraScreen> {
                           const SizedBox(width: 8),
                           Text(
                             'Objetivo: ${widget.targetObject}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.5,
-                            ),
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                           ),
                         ],
                       ),
                     ),
                   ),
                 ),
-
-                // 3. Letrero inferior que muestra lo que ve la IA actualmente
+                // Lector inferior
                 Positioned(
                   bottom: 50,
                   left: 20,
@@ -213,19 +151,13 @@ class _CameraScreenState extends State<CameraScreen> {
                     child: Text(
                       "Veo: $_currentLabel",
                       textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
               ],
             )
-          : const Center(
-              child: CircularProgressIndicator(color: Colors.deepPurple),
-            ),
+          : const Center(child: CircularProgressIndicator(color: Colors.deepPurple)),
     );
   }
 }
