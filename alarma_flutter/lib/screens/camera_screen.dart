@@ -32,15 +32,19 @@ class _CameraScreenState extends State<CameraScreen> {
     _setupCameraAndAudio();
   }
 
-  Future<void> _setupCameraAndAudio() async {
+ Future<void> _setupCameraAndAudio() async {
+    // 1. Inicializamos el hardware de la cámara primero
     await _cameraService.initializeCamera();
     
     if (mounted && _cameraService.controller != null) {
       setState(() {
         _isCameraInitialized = true;
       });
+      // 2. Reproducimos el sonido de la alarma EN SEGUNDO PLANO sin esperar a que termine
+      
+      _audioService.playAlarma();
 
-      await _audioService.playAlarma();
+      // 3. Arrancamos el escaneo de la IA en el mismísimo milisegundo
       _cameraService.controller!.startImageStream(_processCameraImage);
     }
   }
