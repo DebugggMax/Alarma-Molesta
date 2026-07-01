@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
+import 'package:alarm/alarm.dart'; 
 import '../services/camera_service.dart';
 import '../services/ml_service.dart';
-import '../services/audio_service.dart';
+import '../services/audio_service.dart'; // ✅ Vuelve el audio
 
 class CameraScreen extends StatefulWidget {
   final String targetObject;
@@ -15,12 +16,11 @@ class CameraScreen extends StatefulWidget {
 class _CameraScreenState extends State<CameraScreen> {
   final CameraService _cameraService = CameraService();
   final MlService _mlService = MlService();
-  final AudioService _audioService = AudioService();
+  final AudioService _audioService = AudioService(); // ✅ Instanciamos
 
   bool _isCameraInitialized = false;
   String _currentLabel = "Cargando misión...";
   
-  // Cronómetro interno para regular los impactos de la IA
   DateTime? _lastProcessedTime;
 
   @override
@@ -30,7 +30,6 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _startMission() async {
-    // 1. Encendemos el lente de la cámara
     await _cameraService.initializeCamera();
     if (!mounted || _cameraService.controller == null) return;
 
@@ -38,22 +37,19 @@ class _CameraScreenState extends State<CameraScreen> {
       _isCameraInitialized = true;
     });
 
-    // 🔥 DETONADOR DEL AUDIO (Solución al Bug): 
-    // Forzamos el sonido antes de encender el procesador de IA y damos un respiro al sistema
-    await _audioService.playAlarma();
+    // 🔥 DETONADOR DEL AUDIO Y RELEVO: 
+    await Alarm.stopAll(); // Matamos el nativo para evitar doble sonido
+    await _audioService.playAlarma(); // Prendemos tu alarma manual molesta
     await Future.delayed(const Duration(milliseconds: 500));
 
-    // 2. Iniciamos el detector controlado por tiempo
     _cameraService.controller!.startImageStream((CameraImage image) async {
       final now = DateTime.now();
       
-      // Throttling: Si no han pasado 350ms desde la última foto, ignoramos este cuadro
       if (_lastProcessedTime != null && now.difference(_lastProcessedTime!).inMilliseconds < 350) {
         return;
       }
       _lastProcessedTime = now;
 
-      // Consumimos directamente la lógica empaquetada del servicio
       final result = await _mlService.processFrame(
         image, 
         _cameraService.controller!.description.sensorOrientation, 
@@ -66,9 +62,10 @@ class _CameraScreenState extends State<CameraScreen> {
         _currentLabel = result.label;
       });
 
-      // Si el servicio decreta la victoria, cerramos todo de inmediato
       if (result.isMatch) {
         await _cameraService.controller?.stopImageStream();
+        
+        // ✅ Apagamos el sonido manual al ganar
         await _audioService.stopAlarma();
 
         if (mounted) {
@@ -89,7 +86,7 @@ class _CameraScreenState extends State<CameraScreen> {
     _cameraService.controller?.stopImageStream();
     _cameraService.dispose();
     _mlService.dispose();
-    _audioService.dispose();
+    _audioService.dispose(); // ✅ Limpiamos
     super.dispose();
   }
 
@@ -111,7 +108,6 @@ class _CameraScreenState extends State<CameraScreen> {
                   height: double.infinity,
                   child: CameraPreview(_cameraService.controller!),
                 ),
-                // Píldora de objetivo superior
                 Positioned(
                   top: kToolbarHeight + 20,
                   left: 30,
@@ -137,7 +133,6 @@ class _CameraScreenState extends State<CameraScreen> {
                     ),
                   ),
                 ),
-                // Lector inferior
                 Positioned(
                   bottom: 50,
                   left: 20,

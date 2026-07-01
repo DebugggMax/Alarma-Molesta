@@ -1,42 +1,20 @@
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:timezone/timezone.dart' as tz;
-import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:alarm/alarm.dart';
 import 'package:flutter/material.dart';
 
 class AlarmSchedulerService {
-  static final FlutterLocalNotificationsPlugin _notificationsPlugin =
-      FlutterLocalNotificationsPlugin();
-
   static bool _initialized = false;
 
-  /// Inicializar una sola vez (se llama desde main.dart)
+  /// Inicializar el motor indestructible de alarmas
   static Future<void> initialize() async {
     if (_initialized) return;
-
-    tz.initializeTimeZones();
-
-    const AndroidInitializationSettings androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-
-    const DarwinInitializationSettings iosSettings =
-        DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
-    );
-
-    const InitializationSettings initSettings = InitializationSettings(
-      android: androidSettings,
-      iOS: iosSettings,
-    );
-
-    await _notificationsPlugin.initialize(initSettings);
-
-    // ✅ Permisos ya declarados en AndroidManifest.xml, no se requiere llamada en código
+    
+    // Inicializa la librería nativa
+    await Alarm.init();
+    
     _initialized = true;
   }
 
-  /// Programa una alarma exacta nativa
+  /// Programa la alarma real
   static Future<void> scheduleAlarm({
     required int alarmId,
     required TimeOfDay time,
@@ -48,57 +26,42 @@ class AlarmSchedulerService {
       time.hour, time.minute, 0,
     );
 
+    // Si la hora ya pasó hoy, se programa para mañana
     if (scheduledDate.isBefore(now)) {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
     }
 
-    final tzScheduled = tz.TZDateTime.from(scheduledDate, tz.local);
-
-    const AndroidNotificationDetails androidDetails =
-        AndroidNotificationDetails(
-      'alarm_channel',
-      'Alarmas',
-      channelDescription: 'Canal de alarmas de la app',
-      importance: Importance.max,
-      priority: Priority.max,
-      fullScreenIntent: true,
-      category: AndroidNotificationCategory.alarm,
-      sound: RawResourceAndroidNotificationSound('audio_predef'),
-      playSound: true,
-      enableVibration: true,
+    // 🚨 SINTAXIS EXACTA Y FINAL PARA LA VERSIÓN 4.0.8
+    final alarmSettings = AlarmSettings(
+      id: alarmId,
+      dateTime: scheduledDate,
+      assetAudioPath: 'assets/audio/audio_predef.mp3', 
+      loopAudio: true,
+      vibrate: true,
+      androidFullScreenIntent: true,
+      
+      // 1. EL VOLUMEN SUELTO (Como lo exige la v4)
+      volume: 1.0,
+      fadeDuration: 3.0, // En la v4 se pasa como número (segundos), no como Duration
+      
+      // 2. LA NOTIFICACIÓN (Ya vimos que esta sí la acepta perfecto)
+      notificationSettings: const NotificationSettings(
+        title: '¡Hora de despertar!',
+        body: 'Toca para iniciar tu misión o tomar tu remedio',
+        stopButton: 'Abrir App',
+      ),
     );
 
-    const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-    );
-
-    const NotificationDetails notifDetails = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    await _notificationsPlugin.zonedSchedule(
-  alarmId,
-  '⏰ ¡Hora de despertar!',
-  'Misión: Encuentra "$targetObject" para apagar la alarma',
-  tzScheduled,
-  notifDetails,
-  uiLocalNotificationDateInterpretation:
-      UILocalNotificationDateInterpretation.absoluteTime,
-  androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-  payload: targetObject,
-);
+    await Alarm.set(alarmSettings: alarmSettings);
   }
 
-  /// Cancela una alarma por su ID
+  /// Cancela una alarma
   static Future<void> cancelAlarm(int alarmId) async {
-    await _notificationsPlugin.cancel(alarmId);
+    await Alarm.stop(alarmId);
   }
 
-  /// Cancela todas las alarmas
+  /// Cancela todas
   static Future<void> cancelAll() async {
-    await _notificationsPlugin.cancelAll();
+    await Alarm.stopAll();
   }
 }
