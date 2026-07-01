@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:camera/camera.dart'; // Aunque lo importamos, no usaremos el controller aquí
 import '../services/audio_service.dart'; // ✅ Usamos tu servicio de audio original
 
 class RemedioScreen extends StatefulWidget {
