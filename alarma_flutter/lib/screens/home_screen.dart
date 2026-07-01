@@ -1,19 +1,16 @@
 import 'dart:async';
 import 'dart:math';
-import 'dart:convert'; // IMPORTANTE: Para empaquetar en JSON
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // IMPORTANTE: Para el caché
-import 'package:alarm/alarm.dart';
-// Modelos polimórficos
+import 'package:shared_preferences/shared_preferences.dart'; 
+
 import '../models/alarma_base.dart';
 import '../models/alarma_mision.dart';
 import '../models/alarma_remedio.dart';
+import '../services/alarm_scheduler_service.dart'; 
 
-// Servicio nativo
-import '../services/alarm_scheduler_service.dart';
 import 'camera_screen.dart';
-import 'remedio_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -35,41 +32,89 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _verificarPermisos();
+    _verificarPermisos(); 
     _cargarAlarmas(); 
-    _startAlarmVigilante();
-
-    // 🚨 ESTA ES LA MAGIA: Escucha si una alarma suena estando la app cerrada o abierta
-    Alarm.ringStream.stream.listen((alarmSettings) {
-      // Buscamos qué alarma sonó para saber qué objeto era (Misión o Remedio)
-      final alarmaSonando = _alarms.firstWhere(
-        (a) => a.id == alarmSettings.id.toString(),
-        // Si no la encuentra, devuelve un objeto vacío de seguridad
-        orElse: () => AlarmaMision(id: '0', time: TimeOfDay.now(), title: '', targetObject: 'Objeto'),
-      );
-
-      // Si es una Misión, abrimos la cámara
-      if (alarmaSonando is AlarmaMision) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => CameraScreen(targetObject: alarmaSonando.targetObject),
-          ),
-        );
-      } 
-      // Si es un Remedio, abrimos la pantalla roja
-      else if (alarmaSonando is AlarmaRemedio) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => RemedioScreen(nombreRemedio: alarmaSonando.title),
-          ),
-        );
-      }
-    });
+    _startAlarmVigilante(); 
   }
 
-  // 🚨 Recuperar datos del caché
+  Future<void> _verificarPermisos() async {
+    bool statusNotificaciones = await Permission.notification.isGranted;
+    bool statusExactAlarm = await Permission.scheduleExactAlarm.isGranted;
+    bool statusBateria = await Permission.ignoreBatteryOptimizations.isGranted;
+
+    if (!statusNotificaciones || !statusExactAlarm || !statusBateria) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _mostrarPopUpPermisosObligatorio();
+      });
+    }
+  }
+
+  void _mostrarPopUpPermisosObligatorio() {
+    showDialog(
+      context: context,
+      barrierDismissible: false, 
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.security, color: Colors.orangeAccent, size: 28),
+              SizedBox(width: 10),
+              Text("Permisos Requeridos", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "Para que la alarma suene en segundo plano y con la pantalla apagada, necesitamos estos permisos:",
+                  style: TextStyle(fontSize: 14),
+                  textAlign: TextAlign.justify,
+                ),
+                const SizedBox(height: 15),
+                _buildRequirementItem(Icons.notifications_active, "1. Mostrar notificaciones."),
+                _buildRequirementItem(Icons.alarm_on, "2. Programar alarmas exactas."),
+                _buildRequirementItem(Icons.battery_alert, "3. Ignorar ahorro de batería."),
+              ],
+            ),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: () async {
+                await Permission.notification.request();
+                await Permission.scheduleExactAlarm.request();
+                await Permission.ignoreBatteryOptimizations.request();
+
+                if (context.mounted) Navigator.pop(context);
+              },
+              child: const Text("Otorgar Permisos"),
+            ),
+          ],
+        );
+      }
+    );
+  }
+
+  Widget _buildRequirementItem(IconData icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.deepPurple, size: 20),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13))),
+        ],
+      ),
+    );
+  }
+
   Future<void> _cargarAlarmas() async {
     final prefs = await SharedPreferences.getInstance();
     final List<String> alarmasGuardadas = prefs.getStringList('mis_alarmas') ?? [];
@@ -87,116 +132,10 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // Guardar datos en el caché
   Future<void> _guardarAlarmas() async {
     final prefs = await SharedPreferences.getInstance();
     final List<String> alarmasString = _alarms.map((a) => jsonEncode(a.toJson())).toList();
     await prefs.setStringList('mis_alarmas', alarmasString);
-  }
-
-  // VERIFICACIÓN ESTRICTA DE PERMISOS XIAOMI
-  Future<void> _verificarPermisos() async {
-    PermissionStatus statusNotificaciones = await Permission.notification.status;
-    PermissionStatus statusAlarmasExactas = await Permission.scheduleExactAlarm.status;
-    // Chequeamos también el permiso de superposición (Ventanas en segundo plano)
-    bool statusVentanas = await Permission.systemAlertWindow.isGranted;
-
-    if (!statusNotificaciones.isGranted || !statusAlarmasExactas.isGranted || !statusVentanas) {
-      Future.delayed(const Duration(milliseconds: 500), () {
-        _mostrarPopUpPermisosObligatorio();
-      });
-    }
-  }
-
-  // EL NUEVO POP-UP MAQUIAVÉLICO
-  // 🚨 EL NUEVO POP-UP CORREGIDO (YA NO TE ATRAPA)
-  void _mostrarPopUpPermisosObligatorio() {
-    showDialog(
-      context: context,
-      barrierDismissible: true, // CAMBIO: Ahora puedes tocar afuera para cerrarlo si molesta
-      builder: (context) {
-        return AlertDialog( // CAMBIO: Quitamos el PopScope que te impedía salir
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Row(
-            children: [
-              Icon(Icons.security, color: Colors.orangeAccent, size: 28),
-              SizedBox(width: 10),
-              Text("Permisos Xiaomi", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  "Para que la alarma encienda la pantalla al estar cerrada, idealmente activa esto en los ajustes de tu celular. Si ya lo hiciste, presiona 'Ignorar' para entrar.",
-                  style: TextStyle(fontSize: 14),
-                  textAlign: TextAlign.justify,
-                ),
-                const SizedBox(height: 15),
-                _buildRequirementItem(Icons.looks_one, "Notificaciones y Alarmas Exactas."),
-                _buildRequirementItem(Icons.looks_two, "Mostrar en pantalla de bloqueo."),
-                _buildRequirementItem(Icons.looks_3, "Abrir nuevas ventanas (Segundo plano)."),
-                _buildRequirementItem(Icons.battery_charging_full, "Sin restricciones de batería."),
-              ],
-            ),
-          ),
-          actions: [
-            // 🚨 NUEVO BOTÓN: Te permite saltarte el cartel si Xiaomi se pone terco
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Ignorar / Ya lo activé", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepPurple,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              onPressed: () async {
-                // Pedimos los permisos nativos estándar de Android
-                await Permission.notification.request();
-                await Permission.scheduleExactAlarm.request();
-                await Permission.ignoreBatteryOptimizations.request();
-                
-                // Pedimos el permiso de superposición
-                if (!await Permission.systemAlertWindow.isGranted) {
-                  await Permission.systemAlertWindow.request();
-                }
-
-                bool notificacionesOk = await Permission.notification.isGranted;
-                bool alarmasOk = await Permission.scheduleExactAlarm.isGranted;
-                bool ventanasOk = await Permission.systemAlertWindow.isGranted;
-
-                // Si por milagro Xiaomi responde bien a la primera, se cierra solo
-                if (notificacionesOk && alarmasOk && ventanasOk) {
-                  if (context.mounted) Navigator.pop(context);
-                } else {
-                  // Si no, te manda a los ajustes para que verifiques
-                  openAppSettings();
-                }
-              },
-              child: const Text("Ir a Configurar"),
-            ),
-          ],
-        );
-      }
-    );
-  }
-
-  // Widget auxiliar para que las instrucciones del Pop-up se vean elegantes
-  Widget _buildRequirementItem(IconData icon, String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
-      child: Row(
-        children: [
-          Icon(icon, color: Colors.deepPurple, size: 20),
-          const SizedBox(width: 8),
-          Expanded(child: Text(text, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13))),
-        ],
-      ),
-    );
   }
 
   void _startAlarmVigilante() {
@@ -208,44 +147,32 @@ class _HomeScreenState extends State<HomeScreen> {
             alarm.time.hour == now.hour &&
             alarm.time.minute == now.minute) {
 
-          final alarmId = int.tryParse(alarm.id) ?? 0;
-          AlarmSchedulerService.cancelAlarm(alarmId);
-
           if (alarm is AlarmaMision) {
-            setState(() {
-              alarm.isActive = false;
-            });
-            _guardarAlarmas(); // Guarda que se apagó
+            setState(() => alarm.isActive = false);
+            _guardarAlarmas(); 
 
             Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (context) => CameraScreen(targetObject: alarm.targetObject),
-              ),
+              MaterialPageRoute(builder: (context) => CameraScreen(targetObject: alarm.targetObject)),
             );
           } else if (alarm is AlarmaRemedio) {
             final nuevaHora = (alarm.time.hour + alarm.intervaloHoras) % 24;
-            final nuevoTime = TimeOfDay(hour: nuevaHora, minute: alarm.time.minute);
+            setState(() => alarm.time = TimeOfDay(hour: nuevaHora, minute: alarm.time.minute));
+            _guardarAlarmas(); 
 
-            setState(() {
-              alarm.time = nuevoTime; 
-            });
-            _guardarAlarmas(); // Guarda la nueva hora reprogramada
-
-            AlarmSchedulerService.scheduleAlarm(
-              alarmId: alarmId,
-              time: nuevoTime,
-              targetObject: alarm.title,
-            );
+            // 🎲 CORRECCIÓN: Seleccionamos un objeto random de la lista de forma dinámica
+            final randomObject = _possibleObjects[_random.nextInt(_possibleObjects.length)];
 
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => RemedioScreen(nombreRemedio: alarm.title),
+                builder: (context) => CameraScreen(
+                  targetObject: randomObject,
+                  remedioName: alarm.title, 
+                ),
               ),
             );
           }
-
           break; 
         }
       }
@@ -300,23 +227,14 @@ class _HomeScreenState extends State<HomeScreen> {
       final randomObject = _possibleObjects[_random.nextInt(_possibleObjects.length)];
       final alarmId = DateTime.now().millisecondsSinceEpoch % 100000;
 
-      await AlarmSchedulerService.scheduleAlarm(
-        alarmId: alarmId,
-        time: pickedTime,
-        targetObject: randomObject,
-      );
-
       setState(() {
         _alarms.add(
-          AlarmaMision(
-            id: alarmId.toString(),
-            time: pickedTime,
-            title: "Despertador",
-            targetObject: randomObject,
-          ),
+          AlarmaMision(id: alarmId.toString(), time: pickedTime, title: "Despertador", targetObject: randomObject),
         );
       });
-      _guardarAlarmas(); // Guarda la nueva alarma
+      _guardarAlarmas();
+      
+      AlarmSchedulerService.scheduleAlarm(alarmId: alarmId, time: pickedTime, targetObject: randomObject);
     }
   }
 
@@ -336,23 +254,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    TextField(
-                      controller: nombreController,
-                      decoration: const InputDecoration(
-                        labelText: 'Nombre de la pastilla/remedio',
-                        prefixIcon: Icon(Icons.medication),
-                      ),
-                      textCapitalization: TextCapitalization.sentences,
-                    ),
+                    TextField(controller: nombreController, decoration: const InputDecoration(labelText: 'Nombre de la pastilla', prefixIcon: Icon(Icons.medication)), textCapitalization: TextCapitalization.sentences),
                     const SizedBox(height: 10),
-                    TextField(
-                      controller: horasController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Repetir cada X horas (Ej: 8)',
-                        prefixIcon: Icon(Icons.repeat),
-                      ),
-                    ),
+                    TextField(controller: horasController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Repetir cada X horas', prefixIcon: Icon(Icons.repeat))),
                     const SizedBox(height: 20),
                     ListTile(
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Colors.grey.shade300)),
@@ -360,71 +264,36 @@ class _HomeScreenState extends State<HomeScreen> {
                       title: const Text('Hora de inicio:'),
                       trailing: Text(tiempoSeleccionado.format(context), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                       onTap: () async {
-                        final TimeOfDay? pickedTime = await showTimePicker(
-                          context: context,
-                          initialTime: tiempoSeleccionado,
-                        );
-                        if (pickedTime != null) {
-                          setStateDialog(() {
-                            tiempoSeleccionado = pickedTime;
-                          });
-                        }
+                        final TimeOfDay? pickedTime = await showTimePicker(context: context, initialTime: tiempoSeleccionado);
+                        if (pickedTime != null) setStateDialog(() => tiempoSeleccionado = pickedTime);
                       },
                     ),
                   ],
                 ),
               ),
               actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
-                ),
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar', style: TextStyle(color: Colors.grey))),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
                   onPressed: () async {
-                    if (nombreController.text.isEmpty || horasController.text.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Por favor llena todos los campos')));
-                      return;
-                    }
+                    if (nombreController.text.isEmpty || horasController.text.isEmpty) return;
 
                     int intervalo = int.tryParse(horasController.text) ?? 8;
+                    final alarmId = DateTime.now().millisecondsSinceEpoch % 100000;
                     
                     if (alarmaExistente == null) {
-                      final alarmId = DateTime.now().millisecondsSinceEpoch % 100000;
-                      await AlarmSchedulerService.scheduleAlarm(
-                        alarmId: alarmId,
-                        time: tiempoSeleccionado,
-                        targetObject: nombreController.text, 
-                      );
-
-                      setState(() {
-                        _alarms.add(
-                          AlarmaRemedio(
-                            id: alarmId.toString(),
-                            time: tiempoSeleccionado,
-                            title: nombreController.text,
-                            intervaloHoras: intervalo,
-                          ),
-                        );
-                      });
+                      setState(() => _alarms.add(AlarmaRemedio(id: alarmId.toString(), time: tiempoSeleccionado, title: nombreController.text, intervaloHoras: intervalo)));
                     } else {
                       setState(() {
                         alarmaExistente.title = nombreController.text;
                         alarmaExistente.intervaloHoras = intervalo;
                         alarmaExistente.time = tiempoSeleccionado;
                       });
-
-                      if (alarmaExistente.isActive) {
-                        final alarmId = int.tryParse(alarmaExistente.id) ?? 0;
-                        await AlarmSchedulerService.scheduleAlarm(
-                          alarmId: alarmId,
-                          time: tiempoSeleccionado,
-                          targetObject: alarmaExistente.title,
-                        );
-                      }
                     }
+                    _guardarAlarmas(); 
                     
-                    _guardarAlarmas(); // Guarda los cambios en el disco
+                    AlarmSchedulerService.scheduleAlarm(alarmId: alarmId, time: tiempoSeleccionado, targetObject: "Remedio: ${nombreController.text}");
+                    
                     Navigator.pop(context); 
                   },
                   child: const Text('Guardar'),
@@ -441,78 +310,44 @@ class _HomeScreenState extends State<HomeScreen> {
     if (alarm is AlarmaRemedio) {
       await _mostrarFormularioRemedio(alarmaExistente: alarm);
     } else if (alarm is AlarmaMision) {
-      final TimeOfDay? nuevoTime = await showTimePicker(
-        context: context,
-        initialTime: alarm.time,
-        helpText: 'MODIFICAR HORA DE LA MISIÓN',
-      );
-
+      final TimeOfDay? nuevoTime = await showTimePicker(context: context, initialTime: alarm.time, helpText: 'MODIFICAR HORA DE LA MISIÓN');
       if (nuevoTime != null) {
-        setState(() {
-          alarm.time = nuevoTime;
-        });
-
-        if (alarm.isActive) {
-          final alarmId = int.tryParse(alarm.id) ?? 0;
-          await AlarmSchedulerService.scheduleAlarm(
-            alarmId: alarmId,
-            time: nuevoTime,
-            targetObject: alarm.targetObject,
-          );
-        }
-        _guardarAlarmas(); // 🚨 Guarda la nueva hora
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Misión modificada con éxito")));
+        setState(() => alarm.time = nuevoTime);
+        _guardarAlarmas();
+        
+        AlarmSchedulerService.cancelAlarm(int.parse(alarm.id));
+        AlarmSchedulerService.scheduleAlarm(alarmId: int.parse(alarm.id), time: nuevoTime, targetObject: alarm.targetObject);
       }
     }
   }
 
   Future<void> _toggleAlarm(Alarma alarm, bool value) async {
-    final alarmId = int.tryParse(alarm.id) ?? 0;
-
+    setState(() => alarm.isActive = value);
+    _guardarAlarmas(); 
+    
     if (value) {
-      String target = alarm is AlarmaMision ? alarm.targetObject : alarm.title;
-      await AlarmSchedulerService.scheduleAlarm(
-        alarmId: alarmId,
-        time: alarm.time,
-        targetObject: target,
-      );
+      if (alarm is AlarmaMision) {
+        AlarmSchedulerService.scheduleAlarm(alarmId: int.parse(alarm.id), time: alarm.time, targetObject: alarm.targetObject);
+      } else if (alarm is AlarmaRemedio) {
+        AlarmSchedulerService.scheduleAlarm(alarmId: int.parse(alarm.id), time: alarm.time, targetObject: "Remedio");
+      }
     } else {
-      await AlarmSchedulerService.cancelAlarm(alarmId);
+      AlarmSchedulerService.cancelAlarm(int.parse(alarm.id));
     }
-
-    setState(() {
-      alarm.isActive = value;
-    });
-    _guardarAlarmas(); // Guarda el estado prendido/apagado
   }
 
-  // Función para borrar alarmas al deslizar
   void _borrarAlarma(int index) {
-    final alarmId = int.tryParse(_alarms[index].id) ?? 0;
-    AlarmSchedulerService.cancelAlarm(alarmId);
-    
-    setState(() {
-      _alarms.removeAt(index);
-    });
-    _guardarAlarmas(); //  Actualiza el disco
+    AlarmSchedulerService.cancelAlarm(int.parse(_alarms[index].id));
+    setState(() => _alarms.removeAt(index));
+    _guardarAlarmas(); 
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mis Alarmas', style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: true,
-        elevation: 2,
-      ),
+      appBar: AppBar(title: const Text('Mis Alarmas', style: TextStyle(fontWeight: FontWeight.bold)), centerTitle: true, elevation: 2),
       body: _alarms.isEmpty
-          ? const Center(
-              child: Text(
-                'No tienes alarmas programadas.\nPresiona el botón de abajo para añadir una.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16, color: Colors.grey),
-              ),
-            )
+          ? const Center(child: Text('No tienes alarmas programadas.', textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: Colors.grey)))
           : ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: _alarms.length,
@@ -520,19 +355,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 final alarm = _alarms[index];
                 final bool esRemedio = alarm is AlarmaRemedio;
 
-                // Envolvemos la Card en un Dismissible para poder borrar deslizando
                 return Dismissible(
                   key: Key(alarm.id),
                   direction: DismissDirection.endToStart,
-                  background: Container(
-                    alignment: Alignment.centerRight,
-                    padding: const EdgeInsets.only(right: 20),
-                    decoration: BoxDecoration(
-                      color: Colors.red,
-                      borderRadius: BorderRadius.circular(16)
-                    ),
-                    child: const Icon(Icons.delete, color: Colors.white, size: 30),
-                  ),
+                  background: Container(alignment: Alignment.centerRight, padding: const EdgeInsets.only(right: 20), decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(16)), child: const Icon(Icons.delete, color: Colors.white, size: 30)),
                   onDismissed: (direction) => _borrarAlarma(index),
                   child: Card(
                     margin: const EdgeInsets.only(bottom: 12),
@@ -542,49 +368,48 @@ class _HomeScreenState extends State<HomeScreen> {
                       borderRadius: BorderRadius.circular(16),
                       onTap: () => _editarAlarma(alarm), 
                       child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                        title: Text(
-                          alarm.time.format(context),
-                          style: TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.bold,
-                            color: alarm.isActive 
-                                ? (esRemedio ? Colors.redAccent : Colors.deepPurple) 
-                                : Colors.grey,
-                          ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        title: Text(alarm.time.format(context), style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: alarm.isActive ? (esRemedio ? Colors.redAccent : Colors.deepPurple) : Colors.grey)),
+                        subtitle: Row(
+                          children: [
+                            Icon(esRemedio ? Icons.medical_services : Icons.psychology, size: 18, color: alarm.isActive ? (esRemedio ? Colors.redAccent : Colors.deepPurple) : Colors.grey),
+                            const SizedBox(width: 6),
+                            Expanded(child: Text(esRemedio ? 'Remedio: ${alarm.title}' : 'Misión: Buscar "${(alarm as AlarmaMision).targetObject}"', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: alarm.isActive ? Colors.black : Colors.grey, fontWeight: FontWeight.w500))),
+                          ],
                         ),
-                        subtitle: Padding(
-                          padding: const EdgeInsets.only(top: 8.0),
-                          child: Row(
-                            children: [
-                              Icon(
-                                esRemedio ? Icons.medical_services : Icons.psychology, 
-                                size: 18, 
-                                color: alarm.isActive 
-                                    ? (esRemedio ? Colors.redAccent : Colors.deepPurple) 
-                                    : Colors.grey,
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  esRemedio 
-                                      ? 'Remedio: ${alarm.title} (Cada ${(alarm as AlarmaRemedio).intervaloHoras} hrs)'
-                                      : 'Misión: Buscar "${(alarm as AlarmaMision).targetObject}"',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: alarm.isActive ? Colors.black : Colors.grey,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        trailing: Switch(
-                          value: alarm.isActive,
-                          activeColor: esRemedio ? Colors.redAccent : Colors.deepPurple,
-                          onChanged: (value) => _toggleAlarm(alarm, value),
+                        // 🛠️ BOTÓN DE BORRAR INTEGRADO JUNTO AL SWITCH
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                              onPressed: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (BuildContext context) {
+                                    return AlertDialog(
+                                      title: const Text("¿Borrar alarma?"),
+                                      content: const Text("Esta acción eliminará la alarma de forma permanente."),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(context),
+                                          child: const Text("Cancelar", style: TextStyle(color: Colors.grey)),
+                                        ),
+                                        TextButton(
+                                          onPressed: () {
+                                            Navigator.pop(context);
+                                            _borrarAlarma(index);
+                                          },
+                                          child: const Text("Borrar", style: TextStyle(color: Colors.red)),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                );
+                              },
+                            ),
+                            Switch(value: alarm.isActive, activeColor: esRemedio ? Colors.redAccent : Colors.deepPurple, onChanged: (value) => _toggleAlarm(alarm, value)),
+                          ],
                         ),
                       ),
                     ),
@@ -592,13 +417,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               },
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _mostrarOpcionesDeAlarma,
-        backgroundColor: Colors.deepPurple,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add),
-        label: const Text('Nueva Alarma'),
-      ),
+      floatingActionButton: FloatingActionButton.extended(onPressed: _mostrarOpcionesDeAlarma, backgroundColor: Colors.deepPurple, foregroundColor: Colors.white, icon: const Icon(Icons.add), label: const Text('Nueva Alarma')),
     );
   }
 }

@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:alarm/alarm.dart'; 
 import '../services/camera_service.dart';
 import '../services/ml_service.dart';
-import '../services/audio_service.dart'; // ✅ Vuelve el audio
+import '../services/audio_service.dart';
 
 class CameraScreen extends StatefulWidget {
   final String targetObject;
-  const CameraScreen({super.key, required this.targetObject});
+  final String? remedioName; // ✅ Recibe opcionalmente el nombre del remedio
+
+  const CameraScreen({
+    super.key, 
+    required this.targetObject, 
+    this.remedioName,
+  });
 
   @override
   State<CameraScreen> createState() => _CameraScreenState();
@@ -16,11 +21,10 @@ class CameraScreen extends StatefulWidget {
 class _CameraScreenState extends State<CameraScreen> {
   final CameraService _cameraService = CameraService();
   final MlService _mlService = MlService();
-  final AudioService _audioService = AudioService(); // ✅ Instanciamos
+  final AudioService _audioService = AudioService();
 
   bool _isCameraInitialized = false;
   String _currentLabel = "Cargando misión...";
-  
   DateTime? _lastProcessedTime;
 
   @override
@@ -37,9 +41,7 @@ class _CameraScreenState extends State<CameraScreen> {
       _isCameraInitialized = true;
     });
 
-    // 🔥 DETONADOR DEL AUDIO Y RELEVO: 
-    await Alarm.stopAll(); // Matamos el nativo para evitar doble sonido
-    await _audioService.playAlarma(); // Prendemos tu alarma manual molesta
+    await _audioService.playAlarma();
     await Future.delayed(const Duration(milliseconds: 500));
 
     _cameraService.controller!.startImageStream((CameraImage image) async {
@@ -64,16 +66,19 @@ class _CameraScreenState extends State<CameraScreen> {
 
       if (result.isMatch) {
         await _cameraService.controller?.stopImageStream();
-        
-        // ✅ Apagamos el sonido manual al ganar
         await _audioService.stopAlarma();
 
         if (mounted) {
           Navigator.pop(context);
+          
+          final String mensajeExito = widget.remedioName != null
+              ? '¡Excelente! Escaneaste tu ${widget.targetObject}. Ya puedes tomar tu "${widget.remedioName}". 💊'
+              : '¡Excelente! Encontraste: ${widget.targetObject}. Alarma apagada. ☀️';
+
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('¡Excelente! Encontraste: ${widget.targetObject}. Alarma apagada. ☀️'),
-              backgroundColor: Colors.green.shade700,
+              content: Text(mensajeExito, style: const TextStyle(fontWeight: FontWeight.bold)),
+              backgroundColor: widget.remedioName != null ? Colors.redAccent : Colors.green.shade700,
             ),
           );
         }
@@ -86,12 +91,14 @@ class _CameraScreenState extends State<CameraScreen> {
     _cameraService.controller?.stopImageStream();
     _cameraService.dispose();
     _mlService.dispose();
-    _audioService.dispose(); // ✅ Limpiamos
+    _audioService.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final bool esRemedio = widget.remedioName != null;
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -108,31 +115,55 @@ class _CameraScreenState extends State<CameraScreen> {
                   height: double.infinity,
                   child: CameraPreview(_cameraService.controller!),
                 ),
+                
+                // 🛠️ PÍLDORA SUPERIOR REPARADA: Cambiada a Column para evitar superposición
                 Positioned(
-                  top: kToolbarHeight + 20,
-                  left: 30,
-                  right: 30,
+                  top: kToolbarHeight + 10,
+                  left: 20,
+                  right: 20,
                   child: Center(
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                       decoration: BoxDecoration(
-                        color: Colors.deepPurple.withOpacity(0.85),
+                        color: esRemedio 
+                            ? Colors.redAccent.withOpacity(0.9) 
+                            : Colors.deepPurple.withOpacity(0.85),
                         borderRadius: BorderRadius.circular(20),
+                        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6)],
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min, // Ajuste dinámico sin desbordar
                         children: [
-                          const Icon(Icons.gps_fixed, color: Colors.white, size: 18),
-                          const SizedBox(width: 8),
+                          // ETIQUETA 1: Solo aparece si es una alarma de tipo remedio
+                          if (esRemedio) ...[
+                            Text(
+                              '💊 Remedio: ${widget.remedioName}',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.white, 
+                                fontWeight: FontWeight.bold, 
+                                fontSize: 18,
+                              ),
+                            ),
+                            const SizedBox(height: 6), // Separación limpia y segura
+                          ],
+                          // ETIQUETA 2: La misión / objeto a escanear (Aparece siempre)
                           Text(
-                            'Objetivo: ${widget.targetObject}',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            '🔍 Misión: Buscar "${widget.targetObject}"',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white, 
+                              fontWeight: FontWeight.w600, 
+                              fontSize: 15,
+                            ),
                           ),
                         ],
                       ),
                     ),
                   ),
                 ),
+                
+                // Lector inferior
                 Positioned(
                   bottom: 50,
                   left: 20,

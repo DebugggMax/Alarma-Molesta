@@ -29,7 +29,6 @@ dependencies:
   timezone: ^0.9.4
   permission_handler: ^12.0.3
   shared_preferences: ^2.5.5
-  alarm: ^4.0.8
   
 
 dev_dependencies:
