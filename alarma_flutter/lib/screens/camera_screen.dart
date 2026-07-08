@@ -6,7 +6,7 @@ import '../services/audio_service.dart';
 
 class CameraScreen extends StatefulWidget {
   final String targetObject;
-  final String? remedioName; // ✅ Recibe opcionalmente el nombre del remedio
+  final String? remedioName;
 
   const CameraScreen({
     super.key, 
@@ -24,8 +24,8 @@ class _CameraScreenState extends State<CameraScreen> {
   final AudioService _audioService = AudioService();
 
   bool _isCameraInitialized = false;
-  String _currentLabel = "Cargando misión...";
-  DateTime? _lastProcessedTime;
+  bool _isProcessingFrame = false; // ✅ Bloquea el botón mientras analiza
+  String _currentLabel = "Apunta al objeto y captura la foto";
 
   @override
   void initState() {
@@ -42,53 +42,72 @@ class _CameraScreenState extends State<CameraScreen> {
     });
 
     await _audioService.playAlarma();
-    await Future.delayed(const Duration(milliseconds: 500));
+  }
 
-    _cameraService.controller!.startImageStream((CameraImage image) async {
-      final now = DateTime.now();
-      
-      if (_lastProcessedTime != null && now.difference(_lastProcessedTime!).inMilliseconds < 350) {
-        return;
-      }
-      _lastProcessedTime = now;
+  // ✅ NUEVA FUNCIÓN: Captura un único fotograma bajo demanda controlada
+  Future<void> _capturarYAnalizar() async {
+    if (_isProcessingFrame || _cameraService.controller == null) return;
 
-      final result = await _mlService.processFrame(
-        image, 
-        _cameraService.controller!.description.sensorOrientation, 
-        widget.targetObject
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        _currentLabel = result.label;
-      });
-
-      if (result.isMatch) {
-        await _cameraService.controller?.stopImageStream();
-        await _audioService.stopAlarma();
-
-        if (mounted) {
-          Navigator.pop(context);
-          
-          final String mensajeExito = widget.remedioName != null
-              ? '¡Excelente! Escaneaste tu ${widget.targetObject}. Ya puedes tomar tu "${widget.remedioName}". 💊'
-              : '¡Excelente! Encontraste: ${widget.targetObject}. Alarma apagada. ☀️';
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(mensajeExito, style: const TextStyle(fontWeight: FontWeight.bold)),
-              backgroundColor: widget.remedioName != null ? Colors.redAccent : Colors.green.shade700,
-            ),
-          );
-        }
-      }
+    setState(() {
+      _isProcessingFrame = true;
+      _currentLabel = "Analizando captura...";
     });
+
+    bool fotogramaTomado = false;
+
+    try {
+      // Abrimos el canal del stream de la cámara por un único instante
+      await _cameraService.controller!.startImageStream((CameraImage image) async {
+        if (fotogramaTomado) return;
+        fotogramaTomado = true;
+
+        // ✅ Congelamos/Detenemos el flujo inmediatamente
+        await _cameraService.controller!.stopImageStream();
+
+        // Procesamos ese único fotograma capturado
+        final result = await _mlService.processFrame(
+          image, 
+          _cameraService.controller!.description.sensorOrientation, 
+          widget.targetObject
+        );
+
+        if (!mounted) return;
+
+        if (result.isMatch) {
+          await _audioService.stopAlarma();
+          if (mounted) {
+            Navigator.pop(context);
+            
+            final String mensajeExito = widget.remedioName != null
+                ? '¡Excelente! Escaneaste tu ${widget.targetObject}. Ya puedes tomar tu "${widget.remedioName}". 💊'
+                : '¡Excelente! Encontraste: ${widget.targetObject}. Alarma apagada. ☀️';
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(mensajeExito, style: const TextStyle(fontWeight: FontWeight.bold)),
+                backgroundColor: widget.remedioName != null ? Colors.redAccent : Colors.green.shade700,
+              ),
+            );
+          }
+        } else {
+          setState(() {
+            _isProcessingFrame = false;
+            _currentLabel = "No coincide. ¡Intenta de nuevo!\n(Visto: ${result.label})";
+          });
+        }
+      });
+    } catch (e) {
+      setState(() {
+        _isProcessingFrame = false;
+        _currentLabel = "Error al procesar el fotograma instantáneo.";
+      });
+    }
   }
 
   @override
   void dispose() {
-    _cameraService.controller?.stopImageStream();
+    // Protección extra por si se cierra la pantalla a la fuerza
+    try { _cameraService.controller?.stopImageStream(); } catch (_) {}
     _cameraService.dispose();
     _mlService.dispose();
     _audioService.dispose();
@@ -116,7 +135,7 @@ class _CameraScreenState extends State<CameraScreen> {
                   child: CameraPreview(_cameraService.controller!),
                 ),
                 
-                // 🛠️ PÍLDORA SUPERIOR REPARADA: Cambiada a Column para evitar superposición
+                // Píldora superior informativa
                 Positioned(
                   top: kToolbarHeight + 10,
                   left: 20,
@@ -132,30 +151,20 @@ class _CameraScreenState extends State<CameraScreen> {
                         boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6)],
                       ),
                       child: Column(
-                        mainAxisSize: MainAxisSize.min, // Ajuste dinámico sin desbordar
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          // ETIQUETA 1: Solo aparece si es una alarma de tipo remedio
                           if (esRemedio) ...[
                             Text(
                               '💊 Remedio: ${widget.remedioName}',
                               textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.white, 
-                                fontWeight: FontWeight.bold, 
-                                fontSize: 18,
-                              ),
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
                             ),
-                            const SizedBox(height: 6), // Separación limpia y segura
+                            const SizedBox(height: 6),
                           ],
-                          // ETIQUETA 2: La misión / objeto a escanear (Aparece siempre)
                           Text(
                             '🔍 Misión: Buscar "${widget.targetObject}"',
                             textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white, 
-                              fontWeight: FontWeight.w600, 
-                              fontSize: 15,
-                            ),
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15),
                           ),
                         ],
                       ),
@@ -163,9 +172,9 @@ class _CameraScreenState extends State<CameraScreen> {
                   ),
                 ),
                 
-                // Lector inferior
+                // Lector inferior e instrucciones
                 Positioned(
-                  bottom: 50,
+                  bottom: 140,
                   left: 20,
                   right: 20,
                   child: Container(
@@ -175,12 +184,45 @@ class _CameraScreenState extends State<CameraScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      "Veo: $_currentLabel",
+                      _currentLabel,
                       textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                      style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
+
+                // ✅ BOTÓN DE CAPTURA ESTILO OBTURADOR NATIVO
+                Positioned(
+                  bottom: 40,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: GestureDetector(
+                      onTap: _isProcessingFrame ? null : _capturarYAnalizar,
+                      child: Container(
+                        height: 80,
+                        width: 80,
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 4),
+                        ),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: _isProcessingFrame ? Colors.grey : (esRemedio ? Colors.redAccent : Colors.deepPurple),
+                          ),
+                          child: _isProcessingFrame 
+                              ? const Padding(
+                                  padding: EdgeInsets.all(16.0),
+                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3),
+                                )
+                              : const Icon(Icons.camera_alt, color: Colors.white, size: 32),
+                        ),
+                      ),
+                    ),
+                  ),
+                )
               ],
             )
           : const Center(child: CircularProgressIndicator(color: Colors.deepPurple)),
