@@ -19,7 +19,7 @@ class MlService {
     _imageLabeler = ImageLabeler(options: ImageLabelerOptions(confidenceThreshold: 0.5));
   }
 
-  /// ⚙️ PROCESA EL FRAME: Convierte los bytes de la cámara y evalúa victoria
+  /// PROCESA EL FRAME: Convierte los bytes de la cámara y evalúa victoria
   Future<MlResult> processFrame(CameraImage image, int sensorOrientation, String targetObject) async {
     if (_isBusy) return MlResult(label: "Procesando...", isMatch: false);
     _isBusy = true;
@@ -36,13 +36,13 @@ class MlService {
         return MlResult(label: "Buscando...", isMatch: false);
       }
 
-      // ✅ Revisamos todos los labels, no solo el primero
+      // Revisamos todos los labels, no solo el primero
       final topLabel = labels.first.label;
       final bool isMatch = labels.any((label) => _checkMatch(label.label, targetObject));
 
       return MlResult(label: topLabel, isMatch: isMatch);
     } catch (e) {
-      debugPrint("❌ MlService Error: $e");
+      debugPrint("XXXX MlService Error: $e");
       return MlResult(label: "Error de lectura", isMatch: false);
     } finally {
       _isBusy = false;
@@ -111,7 +111,7 @@ class MlService {
     );
   }
 
-  /// 🗣️ TRADUCTOR: Compara lo detectado en inglés con el objetivo en español
+  ///  TRADUCTOR: Compara lo detectado en inglés con el objetivo en español
   bool _checkMatch(String detected, String target) {
     final String detectedLower = detected.toLowerCase();
     switch (target) {

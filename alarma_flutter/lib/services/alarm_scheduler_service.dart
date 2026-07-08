@@ -32,7 +32,7 @@ class AlarmSchedulerService {
 
     await _notificationsPlugin.initialize(
       initSettings,
-      // 🚨 ESTO FALTABA: Es lo que despierta la app al tocar la notificación o saltar el fullScreenIntent
+      //  ESTO FALTABA: Es lo que despierta la app al tocar la notificación o saltar el fullScreenIntent
       onDidReceiveNotificationResponse: (NotificationResponse response) {
         debugPrint(" Notificación tocada. Payload: ${response.payload}");
         // Al tocarla, la app vuelve a primer plano y tu _alarmCheckTimer en home_screen hará el resto.
