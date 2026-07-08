@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/home_screen.dart';
 import 'screens/camera_screen.dart';
+import 'screens/pre_home_screen.dart';
 import 'services/alarm_scheduler_service.dart';
 
 // ✅ Navigator key global para navegar desde fuera del árbol de widgets
@@ -21,11 +23,16 @@ void main() async {
   // ✅ Inicializamos el scheduler nativo antes de lanzar la app
   await AlarmSchedulerService.initialize();
 
-  runApp(const AlarmaApp());
+  // ✅ Comprobar si es el primer inicio del usuario
+  final prefs = await SharedPreferences.getInstance();
+  final bool primerInicioCompletado = prefs.getBool('primer_inicio_completado') ?? false;
+
+  runApp(AlarmaApp(primerInicioCompletado: primerInicioCompletado));
 }
 
 class AlarmaApp extends StatefulWidget {
-  const AlarmaApp({super.key});
+  final bool primerInicioCompletado;
+  const AlarmaApp({super.key, required this.primerInicioCompletado});
 
   @override
   State<AlarmaApp> createState() => _AlarmaAppState();
@@ -39,7 +46,6 @@ class _AlarmaAppState extends State<AlarmaApp> {
   }
 
   void _setupNotificationHandlers() {
-    // ✅ Maneja el tap en la notificación cuando la app estaba en segundo plano o cerrada
     FlutterLocalNotificationsPlugin().initialize(
       const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
@@ -60,14 +66,15 @@ class _AlarmaAppState extends State<AlarmaApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      navigatorKey: navigatorKey, // ✅ Permite navegar desde fuera del árbol
+      navigatorKey: navigatorKey,
       title: 'Despertador Pesado',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const HomeScreen(),
+      // ✅ Si ya completó el registro inicial va a Home, sino a PreHome
+      home: widget.primerInicioCompletado ? const HomeScreen() : const PreHomeScreen(),
     );
   }
 }

@@ -9,8 +9,8 @@ import '../models/alarma_base.dart';
 import '../models/alarma_mision.dart';
 import '../models/alarma_remedio.dart';
 import '../services/alarm_scheduler_service.dart'; 
-
 import 'camera_screen.dart';
+import 'pre_home_screen.dart'; // ✅ Importamos la nueva pantalla
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,17 +24,31 @@ class _HomeScreenState extends State<HomeScreen> {
   final Random _random = Random();
   Timer? _alarmCheckTimer;
 
-  final List<String> _possibleObjects = [
-    'Silla', 'Taza', 'Control remoto', 'Botella', 'Teclado',
-    'Almohada', 'Mochila', 'Llaves', 'Zapatilla', 'Plátano'
-  ];
+  // ✅ Lista dinámica en lugar de fija
+  List<String> _possibleObjects = [];
 
   @override
   void initState() {
     super.initState();
     _verificarPermisos(); 
+    _cargarObjetosConfigurados(); // ✅ Carga los objetos del usuario primero
     _cargarAlarmas(); 
     _startAlarmVigilante(); 
+  }
+
+  // ✅ Lee los objetos seleccionados por el usuario
+  Future<void> _cargarObjetosConfigurados() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> personalizados = prefs.getStringList('objects_disponibles') ?? [];
+    
+    setState(() {
+      if (personalizados.isNotEmpty) {
+        _possibleObjects = personalizados;
+      } else {
+        // Fallback por seguridad si ocurre un problema
+        _possibleObjects = ['Silla', 'Taza', 'Control remoto', 'Botella'];
+      }
+    });
   }
 
   Future<void> _verificarPermisos() async {
@@ -160,7 +174,6 @@ class _HomeScreenState extends State<HomeScreen> {
             setState(() => alarm.time = TimeOfDay(hour: nuevaHora, minute: alarm.time.minute));
             _guardarAlarmas(); 
 
-            // 🎲 CORRECCIÓN: Seleccionamos un objeto random de la lista de forma dinámica
             final randomObject = _possibleObjects[_random.nextInt(_possibleObjects.length)];
 
             Navigator.push(
@@ -345,7 +358,27 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Mis Alarmas', style: TextStyle(fontWeight: FontWeight.bold)), centerTitle: true, elevation: 2),
+      appBar: AppBar(
+        title: const Text('Mis Alarmas', style: TextStyle(fontWeight: FontWeight.bold)), 
+        centerTitle: true, 
+        elevation: 2,
+        // ✅ 2. AGREGAMOS LA TUERCA DE CONFIGURACIÓN EN EL APPBAR
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings, color: Colors.deepPurple),
+            onPressed: () async {
+              final resultado = await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const PreHomeScreen()),
+              );
+              // Si el usuario guardó cambios, refrescamos la lista interna
+              if (resultado == true) {
+                _cargarObjetosConfigurados();
+              }
+            },
+          )
+        ],
+      ),
       body: _alarms.isEmpty
           ? const Center(child: Text('No tienes alarmas programadas.', textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: Colors.grey)))
           : ListView.builder(
@@ -377,7 +410,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             Expanded(child: Text(esRemedio ? 'Remedio: ${alarm.title}' : 'Misión: Buscar "${(alarm as AlarmaMision).targetObject}"', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: alarm.isActive ? Colors.black : Colors.grey, fontWeight: FontWeight.w500))),
                           ],
                         ),
-                        // 🛠️ BOTÓN DE BORRAR INTEGRADO JUNTO AL SWITCH
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
