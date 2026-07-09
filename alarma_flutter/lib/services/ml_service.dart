@@ -15,8 +15,23 @@ class MlService {
   late ImageLabeler _imageLabeler;
   bool _isBusy = false;
 
+  //  Matriz estricta de tolerancia dinámica objeto por objeto
+  final Map<String, double> _umbralesPorObjeto = {
+    'Silla': 0.60,          // Muebles cúbicos confunden al modelo fácilmente
+    'Taza': 0.45,           // Son pequeñas y el usuario suele cubrirlas con la mano
+    'Control remoto': 0.55, // Estándar moderado
+    'Botella': 0.50,        // Estándar equilibrado
+    'Teclado': 0.65,        // Exigente: Evita falsas lecturas con texturas de líneas paralelas
+    'Almohada': 0.60,       // Exigente: Se confunde con sábanas o ropa arrugada
+    'Mochila': 0.55,        // Estándar moderado
+    'Llaves': 0.60,         // Exigente: Evita que cualquier metal pequeño apruebe la misión
+    'Zapatilla': 0.55,      // Estándar equilibrado
+    'Plátano': 0.65,        // Alto: Debe certificar un plátano real y no cualquier comida
+  };
+
   MlService() {
-    _imageLabeler = ImageLabeler(options: ImageLabelerOptions(confidenceThreshold: 0.5));
+    // ✅ Bajamos el umbral nativo a 0.0 para controlarlo dinámicamente en código
+    _imageLabeler = ImageLabeler(options: ImageLabelerOptions(confidenceThreshold: 0.0));
   }
 
   /// PROCESA EL FRAME: Convierte los bytes de la cámara y evalúa victoria
@@ -36,11 +51,14 @@ class MlService {
         return MlResult(label: "Buscando...", isMatch: false);
       }
 
-      // Revisamos todos los labels, no solo el primero
-      final topLabel = labels.first.label;
-      final bool isMatch = labels.any((label) => _checkMatch(label.label, targetObject));
+      // ✅ Mostramos el objeto detectado principal junto a su porcentaje real de confianza
+      final primaryLabel = labels.first;
+      final topLabelWithConfidence = "${primaryLabel.label} (${(primaryLabel.confidence * 100).toStringAsFixed(0)}%)";
+      
+      // ✅ Evaluamos la coincidencia inyectando el valor numérico de confianza
+      final bool isMatch = labels.any((label) => _checkMatch(label.label, label.confidence, targetObject));
 
-      return MlResult(label: topLabel, isMatch: isMatch);
+      return MlResult(label: topLabelWithConfidence, isMatch: isMatch);
     } catch (e) {
       debugPrint("XXXX MlService Error: $e");
       return MlResult(label: "Error de lectura", isMatch: false);
@@ -111,88 +129,65 @@ class MlService {
     );
   }
 
-  ///  TRADUCTOR: Compara lo detectado en inglés con el objetivo en español
-  bool _checkMatch(String detected, String target) {
+  /// ✅ TRADUCTOR OPTIMIZADO: Evalúa certeza individual y limpia términos ambiguos
+  bool _checkMatch(String detected, double confidence, String target) {
     final String detectedLower = detected.toLowerCase();
+    
+    // Filtro inmediato de confianza según el objeto seleccionado
+    double umbralRequerido = _umbralesPorObjeto[target] ?? 0.50;
+    if (confidence < umbralRequerido) {
+      return false; 
+    }
+
     switch (target) {
       case 'Silla':
         return detectedLower.contains('chair') ||
             detectedLower.contains('seat') ||
-            detectedLower.contains('furniture') ||
             detectedLower.contains('stool') ||
-            detectedLower.contains('sofa') ||
-            detectedLower.contains('couch') ||
             detectedLower.contains('armchair');
 
       case 'Taza':
         return detectedLower.contains('cup') ||
             detectedLower.contains('mug') ||
-            detectedLower.contains('coffee cup') ||
-            detectedLower.contains('drinkware') ||
-            detectedLower.contains('tableware') ||
-            detectedLower.contains('glass');
+            detectedLower.contains('coffee cup');
 
       case 'Control remoto':
         return detectedLower.contains('remote') ||
-            detectedLower.contains('controller') ||
-            detectedLower.contains('electronic device') ||
-            detectedLower.contains('gadget') ||
+            detectedLower.contains('remote control') ||
             detectedLower.contains('clicker');
 
       case 'Botella':
         return detectedLower.contains('bottle') ||
             detectedLower.contains('water bottle') ||
-            detectedLower.contains('plastic bottle') ||
-            detectedLower.contains('drinkware') ||
-            detectedLower.contains('container');
+            detectedLower.contains('plastic bottle');
 
       case 'Teclado':
         return detectedLower.contains('keyboard') ||
-            detectedLower.contains('computer keyboard') ||
-            detectedLower.contains('musical keyboard') ||
-            detectedLower.contains('electronic instrument') ||
-            detectedLower.contains('musical instrument') ||
-            detectedLower.contains('piano') ||
-            detectedLower.contains('synthesizer') ||
-            detectedLower.contains('input device') ||
-            detectedLower.contains('office equipment');
+            detectedLower.contains('computer keyboard');
 
       case 'Almohada':
         return detectedLower.contains('pillow') ||
             detectedLower.contains('cushion') ||
-            detectedLower.contains('bedding') ||
-            detectedLower.contains('textile') ||
             detectedLower.contains('throw pillow');
 
       case 'Mochila':
         return detectedLower.contains('backpack') ||
-            detectedLower.contains('bag') ||
-            detectedLower.contains('luggage') ||
-            detectedLower.contains('handbag') ||
-            detectedLower.contains('satchel') ||
-            detectedLower.contains('rucksack');
+            detectedLower.contains('rucksack') ||
+            detectedLower.contains('satchel');
 
       case 'Llaves':
         return detectedLower.contains('key') ||
             detectedLower.contains('keys') ||
-            detectedLower.contains('keychain') ||
-            detectedLower.contains('lock') ||
-            detectedLower.contains('metal');
+            detectedLower.contains('keychain');
 
       case 'Zapatilla':
         return detectedLower.contains('shoe') ||
             detectedLower.contains('sneaker') ||
             detectedLower.contains('footwear') ||
-            detectedLower.contains('boot') ||
-            detectedLower.contains('sandal') ||
-            detectedLower.contains('running shoe') ||
-            detectedLower.contains('sport');
+            detectedLower.contains('running shoe');
 
       case 'Plátano':
-        return detectedLower.contains('banana') ||
-            detectedLower.contains('fruit') ||
-            detectedLower.contains('food') ||
-            detectedLower.contains('produce');
+        return detectedLower.contains('banana');
 
       default:
         return detectedLower == target.toLowerCase();

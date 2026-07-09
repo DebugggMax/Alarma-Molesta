@@ -9,8 +9,9 @@ import '../models/alarma_base.dart';
 import '../models/alarma_mision.dart';
 import '../models/alarma_remedio.dart';
 import '../services/alarm_scheduler_service.dart'; 
+
 import 'camera_screen.dart';
-import 'pre_home_screen.dart'; // ✅ Importamos la nueva pantalla
+import 'pre_home_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,31 +25,19 @@ class _HomeScreenState extends State<HomeScreen> {
   final Random _random = Random();
   Timer? _alarmCheckTimer;
 
-  // ✅ Lista dinámica en lugar de fija
-  List<String> _possibleObjects = [];
+  // ✅ Inicializada con la base completa como respaldo preventivo continuo
+  List<String> _possibleObjects = [
+    'Silla', 'Taza', 'Control remoto', 'Botella', 'Teclado',
+    'Almohada', 'Mochila', 'Llaves', 'Zapatilla', 'Plátano'
+  ];
 
   @override
   void initState() {
     super.initState();
     _verificarPermisos(); 
-    _cargarObjetosConfigurados(); // ✅ Carga los objetos del usuario primero
+    _cargarObjetosConfigurados(); // ✅ Carga filtros del usuario en primer lugar
     _cargarAlarmas(); 
     _startAlarmVigilante(); 
-  }
-
-  // ✅ Lee los objetos seleccionados por el usuario
-  Future<void> _cargarObjetosConfigurados() async {
-    final prefs = await SharedPreferences.getInstance();
-    final List<String> personalizados = prefs.getStringList('objects_disponibles') ?? [];
-    
-    setState(() {
-      if (personalizados.isNotEmpty) {
-        _possibleObjects = personalizados;
-      } else {
-        // Fallback por seguridad si ocurre un problema
-        _possibleObjects = ['Silla', 'Taza', 'Control remoto', 'Botella'];
-      }
-    });
   }
 
   Future<void> _verificarPermisos() async {
@@ -59,6 +48,18 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!statusNotificaciones || !statusExactAlarm || !statusBateria) {
       Future.delayed(const Duration(milliseconds: 500), () {
         _mostrarPopUpPermisosObligatorio();
+      });
+    }
+  }
+
+  // ✅ Sincronización precisa y reactiva de SharedPreferences
+  Future<void> _cargarObjetosConfigurados() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String>? personalizados = prefs.getStringList('objetos_disponibles');
+    
+    if (personalizados != null && personalizados.isNotEmpty) {
+      setState(() {
+        _possibleObjects = personalizados;
       });
     }
   }
@@ -362,7 +363,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('Mis Alarmas', style: TextStyle(fontWeight: FontWeight.bold)), 
         centerTitle: true, 
         elevation: 2,
-        // ✅ 2. AGREGAMOS LA TUERCA DE CONFIGURACIÓN EN EL APPBAR
+        // ✅ Tuerca para modificar la configuración de los objetos dinámicamente
         actions: [
           IconButton(
             icon: const Icon(Icons.settings, color: Colors.deepPurple),
@@ -371,7 +372,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 context,
                 MaterialPageRoute(builder: (context) => const PreHomeScreen()),
               );
-              // Si el usuario guardó cambios, refrescamos la lista interna
               if (resultado == true) {
                 _cargarObjetosConfigurados();
               }

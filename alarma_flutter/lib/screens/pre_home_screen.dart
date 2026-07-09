@@ -10,7 +10,6 @@ class PreHomeScreen extends StatefulWidget {
 }
 
 class _PreHomeScreenState extends State<PreHomeScreen> {
-  // Lista unificada de objetos que soporta la app
   final Map<String, bool> _listaObjetos = {
     'Silla': true,
     'Taza': true,
@@ -32,6 +31,7 @@ class _PreHomeScreenState extends State<PreHomeScreen> {
 
   Future<void> _cargarSeleccionExistente() async {
     final prefs = await SharedPreferences.getInstance();
+    // ✅ Clave corregida en español
     final List<String>? guardados = prefs.getStringList('objetos_disponibles');
     if (guardados != null && guardados.isNotEmpty) {
       setState(() {
@@ -61,16 +61,15 @@ class _PreHomeScreenState extends State<PreHomeScreen> {
     }
 
     final prefs = await SharedPreferences.getInstance();
+    // ✅ Clave corregida en español
     await prefs.setStringList('objetos_disponibles', seleccionados);
     await prefs.setBool('primer_inicio_completado', true);
 
     if (!mounted) return;
 
     if (Navigator.canPop(context)) {
-      // Si accedió desde la tuerca de HomeScreen, volvemos atrás refrescando
       Navigator.pop(context, true);
     } else {
-      // Si es la primera vez, reemplazamos la raíz
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const HomeScreen()),
@@ -85,52 +84,55 @@ class _PreHomeScreenState extends State<PreHomeScreen> {
         title: const Text('¿Qué tienes en casa?', style: TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
       ),
-      body: Column(
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Text(
-              'Selecciona los objetos que están a tu alcance para usarlos en tus misiones de despertador:',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: Colors.grey),
-            ),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              children: _listaObjetos.keys.map((String objeto) {
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  child: CheckboxListTile(
-                    activeColor: Colors.deepPurple,
-                    title: Text(objeto, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    value: _listaObjetos[objeto],
-                    onChanged: (bool? valor) {
-                      setState(() {
-                        _listaObjetos[objeto] = valor ?? false;
-                      });
-                    },
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size.fromHeight(50),
-                backgroundColor: Colors.deepPurple,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      // ✅ SOLUCIÓN AL TEXTO/BOTÓN CORTADO: Envolver en un SafeArea
+      body: SafeArea(
+        child: Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text(
+                'Selecciona los objetos que están a tu alcance para usarlos en tus misiones de despertador:',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: Colors.grey),
               ),
-              onPressed: _guardarConfiguracion,
-              icon: const Icon(Icons.check_circle_outline),
-              label: const Text('Confirmar Selección', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             ),
-          ),
-        ],
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                children: _listaObjetos.keys.map((String objeto) {
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    child: CheckboxListTile(
+                      activeColor: Colors.deepPurple,
+                      title: Text(objeto, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      value: _listaObjetos[objeto],
+                      onChanged: (bool? valor) {
+                        setState(() {
+                          _listaObjetos[objeto] = valor ?? false;
+                        });
+                      },
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
+                  backgroundColor: Colors.deepPurple,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: _guardarConfiguracion,
+                icon: const Icon(Icons.check_circle_outline),
+                label: const Text('Confirmar Selección', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
