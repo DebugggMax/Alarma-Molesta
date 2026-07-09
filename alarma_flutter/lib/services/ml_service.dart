@@ -16,21 +16,22 @@ class MlService {
   bool _isBusy = false;
 
   //  Matriz estricta de tolerancia dinámica objeto por objeto
+  // Matriz calibrada para la vida real (luz de dormitorio/oficina)
   final Map<String, double> _umbralesPorObjeto = {
-    'Silla': 0.60,          // Muebles cúbicos confunden al modelo fácilmente
-    'Taza': 0.45,           // Son pequeñas y el usuario suele cubrirlas con la mano
-    'Control remoto': 0.55, // Estándar moderado
-    'Botella': 0.50,        // Estándar equilibrado
-    'Teclado': 0.65,        // Exigente: Evita falsas lecturas con texturas de líneas paralelas
-    'Almohada': 0.60,       // Exigente: Se confunde con sábanas o ropa arrugada
-    'Mochila': 0.55,        // Estándar moderado
-    'Llaves': 0.60,         // Exigente: Evita que cualquier metal pequeño apruebe la misión
-    'Zapatilla': 0.55,      // Estándar equilibrado
-    'Plátano': 0.65,        // Alto: Debe certificar un plátano real y no cualquier comida
+    'Silla': 0.45,          
+    'Taza': 0.40,           
+    'Control remoto': 0.45, 
+    'Botella': 0.40,        //  Más permisivo para botellas transparentes/vidrio
+    'Teclado': 0.45,        // ⌨ Umbral equilibrado para captar texturas
+    'Almohada': 0.45,       
+    'Mochila': 0.45,        
+    'Llaves': 0.45,         
+    'Zapatilla': 0.45,      
+    'Plátano': 0.50,        
   };
 
   MlService() {
-    // ✅ Bajamos el umbral nativo a 0.0 para controlarlo dinámicamente en código
+    // Bajamos el umbral nativo a 0.0 para controlarlo dinámicamente en código
     _imageLabeler = ImageLabeler(options: ImageLabelerOptions(confidenceThreshold: 0.0));
   }
 
@@ -51,11 +52,11 @@ class MlService {
         return MlResult(label: "Buscando...", isMatch: false);
       }
 
-      // ✅ Mostramos el objeto detectado principal junto a su porcentaje real de confianza
+      // Mostramos el objeto detectado principal junto a su porcentaje real de confianza
       final primaryLabel = labels.first;
       final topLabelWithConfidence = "${primaryLabel.label} (${(primaryLabel.confidence * 100).toStringAsFixed(0)}%)";
       
-      // ✅ Evaluamos la coincidencia inyectando el valor numérico de confianza
+      // Evaluamos la coincidencia inyectando el valor numérico de confianza
       final bool isMatch = labels.any((label) => _checkMatch(label.label, label.confidence, targetObject));
 
       return MlResult(label: topLabelWithConfidence, isMatch: isMatch);
@@ -129,12 +130,13 @@ class MlService {
     );
   }
 
-  /// ✅ TRADUCTOR OPTIMIZADO: Evalúa certeza individual y limpia términos ambiguos
+  ///  TRADUCTOR OPTIMIZADO: Evalúa certeza individual y limpia términos ambiguos
+  ///  TRADUCTOR ADAPTATIVO: Absorbe las limitaciones del modelo de Google
   bool _checkMatch(String detected, double confidence, String target) {
     final String detectedLower = detected.toLowerCase();
     
     // Filtro inmediato de confianza según el objeto seleccionado
-    double umbralRequerido = _umbralesPorObjeto[target] ?? 0.50;
+    double umbralRequerido = _umbralesPorObjeto[target] ?? 0.45;
     if (confidence < umbralRequerido) {
       return false; 
     }
@@ -149,7 +151,8 @@ class MlService {
       case 'Taza':
         return detectedLower.contains('cup') ||
             detectedLower.contains('mug') ||
-            detectedLower.contains('coffee cup');
+            detectedLower.contains('coffee cup') ||
+            detectedLower.contains('tableware'); // Añadido por si se confunde con vajilla
 
       case 'Control remoto':
         return detectedLower.contains('remote') ||
@@ -157,13 +160,24 @@ class MlService {
             detectedLower.contains('clicker');
 
       case 'Botella':
+        //  Ahora acepta "container" o "glass", pero SOLO si estás buscando una botella 
+        // y con el umbral calibrado, evitando colisiones accidentales.
         return detectedLower.contains('bottle') ||
             detectedLower.contains('water bottle') ||
-            detectedLower.contains('plastic bottle');
+            detectedLower.contains('plastic bottle') ||
+            detectedLower.contains('glass bottle') ||
+            detectedLower.contains('container') ||
+            detectedLower.contains('liquid');
 
       case 'Teclado':
+        //  Solución al error de Google: Si confunde el teclado con un piano o periférico, lo acepta.
         return detectedLower.contains('keyboard') ||
-            detectedLower.contains('computer keyboard');
+            detectedLower.contains('computer keyboard') ||
+            detectedLower.contains('input device') ||
+            detectedLower.contains('space bar') ||
+            detectedLower.contains('musical instrument') || 
+            detectedLower.contains('piano') ||
+            detectedLower.contains('electronic instrument');
 
       case 'Almohada':
         return detectedLower.contains('pillow') ||
@@ -173,7 +187,8 @@ class MlService {
       case 'Mochila':
         return detectedLower.contains('backpack') ||
             detectedLower.contains('rucksack') ||
-            detectedLower.contains('satchel');
+            detectedLower.contains('satchel') ||
+            detectedLower.contains('bag'); // Volvemos a admitir bag pero protegido por el caso de uso
 
       case 'Llaves':
         return detectedLower.contains('key') ||
